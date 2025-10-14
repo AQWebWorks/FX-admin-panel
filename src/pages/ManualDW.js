@@ -17,7 +17,7 @@ const ManualDW = () => {
     display: "",
     amount: "",
     remark: "",
-    transactionType: "deposit",
+    transactionType: "ADMIN_RECHARGE",
     accountId: null,
     accountBalance: null,
   });
@@ -50,8 +50,6 @@ const ManualDW = () => {
         localStorage.removeItem("username")
 
         navigate("/login");
-      } else {
-        console.error("Network or server error:");
       }
       if (!response.ok) {
         throw new Error('Failed to fetch users');
@@ -88,6 +86,56 @@ const ManualDW = () => {
     }
   };
 
+  const fetchWalletHistory = async () => {
+
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_BASE_URL}/wallet/wallet-history`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': 'Bearer ' + localStorage.getItem('auth'),
+            'Content-Type': 'application/json'
+          },
+        }
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem("isLoggedIn");
+        localStorage.removeItem("auth");
+        localStorage.removeItem("username");
+        navigate("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch wallet history');
+      }
+
+      const data = await response.json();
+
+      const transactionData = data.data.map(elem => ({
+        id: elem._id,
+        username: elem.userId.user_name,
+        timestamp: elem.createdAt,
+        type: elem.source,
+        display: elem.event,
+        remark: elem.comment,
+        status: "Completed",
+        amount: elem.amount
+      }))
+
+      setTransactions(transactionData);
+      showMessage("✅ Wallet history loaded successfully", "success");
+      return data;
+
+    } catch (error) {
+      console.error("Error fetching wallet history:", error);
+      showMessage("❌ Failed to load wallet history", "error");
+    }
+  };
+
+
   // Load data on component mount
   useEffect(() => {
     setIsLoading(true);
@@ -98,7 +146,7 @@ const ManualDW = () => {
 
     // Fetch users from API
     fetchUsers();
-
+    fetchWalletHistory()
     setIsLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -122,7 +170,8 @@ const ManualDW = () => {
   };
 
   const handleTransactionTypeChange = (type) => {
-    setFormData({ ...formData, transactionType: type });
+    console.log(type)
+    setFormData(prev => ({ ...prev, transactionType: type }));
   };
 
   const showMessage = (text, type = "info") => {
@@ -160,103 +209,110 @@ const ManualDW = () => {
       return;
     }
 
-    if (formData.transactionType === "withdraw" && amount > selectedAccount.balance) {
-      showMessage("❌ Insufficient balance for withdrawal", "error");
-      return;
-    }
-
     if (amount < 0) {
       showMessage("❌ Please enter a positive amount", "error");
       return;
     }
 
     setIsLoading(true);
-
-    try {
-      const response = await axios.post(
-        `${process.env.REACT_APP_BASE_URL}/wallet/add-to-wallet`,
-        {
-          amountToAdd: amount,
-          userId: formData.accountId,
-          remarks: {
-            comment: formData.remark,
-            amount,
+    if (formData.transactionType === 'ADMIN_RECHARGE') {
+      try {
+        const response = await axios.post(
+          `${process.env.REACT_APP_BASE_URL}/wallet/add-to-wallet`,
+          {
+            amountToAdd: amount,
+            userId: formData.accountId,
+            remarks: {
+              comment: formData.remark,
+              amount,
+            },
           },
-        },
-        {
-          headers: {
-            Authorization: "Bearer " + localStorage.getItem("auth"),
-          },
-        }
-      );
-
-      if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem("auth");
-        showMessage("⚠️ Session expired. Redirecting to login...", "warning");
-        setTimeout(() => navigate("/login"), 1500);
-        return;
-      }
-
-      const transaction = {
-        id: Date.now(),
-        accountId: formData.accountId,
-        username: formData.account,
-        amount,
-        type: formData.transactionType,
-        display: formData.display,
-        remark: formData.remark,
-        timestamp: new Date().toISOString(),
-        status: "Completed",
-        previousBalance: selectedAccount.balance || 0,
-        newBalance:
-          formData.transactionType === "deposit"
-            ? (selectedAccount.balance || 0) + amount
-            : (selectedAccount.balance || 0) - amount,
-      };
-
-      const updatedAccounts = accounts.map((account) =>
-        account.id === formData.accountId
-          ? {
-            ...account,
-            balance:
-              formData.transactionType === "deposit"
-                ? (account.balance || 0) + amount
-                : (account.balance || 0) - amount,
+          {
+            headers: {
+              Authorization: "Bearer " + localStorage.getItem("auth"),
+            },
           }
-          : account
-      );
+        );
 
-      setAccounts(updatedAccounts);
-      setTransactions([transaction, ...transactions]);
-
-      setFormData({
-        account: "",
-        display: "",
-        amount: "",
-        remark: "",
-        transactionType: "deposit",
-        accountId: null,
-        accountBalance: null,
-      });
-
-      showMessage(
-        `✅ ${formData.transactionType === "deposit" ? "Deposit" : "Withdrawal"} of $${amount.toFixed(
-          2
-        )} completed successfully for ${formData.account}`,
-        "success"
-      );
-    } catch (error) {
-      if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-        localStorage.removeItem("auth");
-        showMessage("⚠️ Session expired. Redirecting to login...", "warning");
-        setTimeout(() => navigate("/login"), 1500);
-      } else {
-        console.error("Transaction error:", error);
-        showMessage("❌ Transaction failed. Please try again.", "error");
+        if (response.status === 401 || response.status === 403) {
+          localStorage.removeItem("auth");
+          showMessage("⚠️ Session expired. Redirecting to login...", "warning");
+          setTimeout(() => navigate("/login"), 1500);
+          return;
+        }
+        fetchWalletHistory()
+        showMessage(
+          `✅ ${formData.transactionType === "ADMIN_RECHARGE" ? "ADMIN_RECHARGE" : "ADMIN_DEDUCTED"} of $${amount.toFixed(
+            2
+          )} completed successfully for ${formData.account}`,
+          "success"
+        );
+      } catch (error) {
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+          localStorage.removeItem("auth");
+          showMessage("⚠️ Session expired. Redirecting to login...", "warning");
+          setTimeout(() => navigate("/login"), 1500);
+        } else {
+          console.error("Transaction error:", error);
+          showMessage("❌ Transaction failed. Please try again.", "error");
+        }
+      } finally {
+        setIsLoading(false);
       }
-    } finally {
-      setIsLoading(false);
+    } else {
+      try {
+        const response = await axios.post(
+          `${process.env.REACT_APP_BASE_URL}/wallet/deduct-from-wallet`,
+          {
+            amountToDeduct: amount,
+            userId: formData.accountId,
+            remarks: {
+              comment: formData.remark
+            },
+          },
+          {
+            headers: {
+              Authorization: "Bearer " + localStorage.getItem("auth"),
+            },
+          }
+        );
+
+        if (response.status === 401 || response.status === 403) {
+          localStorage.removeItem("auth");
+          showMessage("⚠️ Session expired. Redirecting to login...", "warning");
+          setTimeout(() => navigate("/login"), 1500);
+          return;
+        }
+        fetchWalletHistory()
+        showMessage(
+          `✅ ${formData.transactionType === "ADMIN_RECHARGE" ? "ADMIN_RECHARGE" : "ADMIN_DEDUCTED"} of $${amount.toFixed(
+            2
+          )} completed successfully for ${formData.account}`,
+          "success"
+        );
+      } catch (error) {
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+          localStorage.removeItem("auth");
+          showMessage("⚠️ Session expired. Redirecting to login...", "warning");
+          setTimeout(() => navigate("/login"), 1500);
+        } else {
+          console.error("Transaction error:", error);
+          showMessage("❌ Transaction failed. Please try again.", "error");
+        }
+      } finally {
+        setIsLoading(false);
+      }
     }
+
+    setFormData({
+      account: "",
+      display: "",
+      amount: "",
+      remark: "",
+      transactionType: "ADMIN_RECHARGE",
+      accountId: null,
+      accountBalance: null,
+    })
   };
 
   const handleExportTransactions = () => {
@@ -270,11 +326,9 @@ const ManualDW = () => {
       Username: t.username,
       Type: t.type.charAt(0).toUpperCase() + t.type.slice(1),
       Amount: t.amount,
-      "Previous Balance": t.previousBalance || 0,
-      "New Balance": t.newBalance || 0,
       Remark: t.remark,
+      Timestamp: t.timestamp,
       Display: t.display,
-      Timestamp: new Date(t.timestamp).toLocaleString(),
       Status: t.status,
     }));
 
@@ -347,20 +401,20 @@ const ManualDW = () => {
   };
 
   const getTransactionTypeColor = (type) => {
-    return type === "deposit" ? "#27ae60" : "#e74c3c";
+    return type === "ADMIN_RECHARGE" ? "#27ae60" : "#e74c3c";
   };
 
   const getTransactionTypeIcon = (type) => {
-    return type === "deposit" ? <Plus size={14} /> : <Minus size={14} />;
+    return type === "ADMIN_RECHARGE" ? <Plus size={14} /> : <Minus size={14} />;
   };
 
   const getStatistics = () => {
     const totalDeposits = transactions
-      .filter((t) => t.type === "deposit")
+      .filter((t) => t.type === "ADMIN_RECHARGE")
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const totalWithdrawals = transactions
-      .filter((t) => t.type === "withdraw")
+      .filter((t) => t.type === "ADMIN_DEDUCT")
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const netFlow = totalDeposits - totalWithdrawals;
@@ -682,16 +736,16 @@ const ManualDW = () => {
               <div style={{ display: "flex", gap: "10px" }}>
                 <button
                   type='button'
-                  onClick={() => handleTransactionTypeChange("deposit")}
+                  onClick={() => handleTransactionTypeChange("ADMIN_RECHARGE")}
                   style={{
                     flex: 1,
                     padding: "10px",
                     backgroundColor:
-                      formData.transactionType === "deposit"
+                      formData.transactionType === "ADMIN_RECHARGE"
                         ? "#27ae60"
                         : "#f8f9fa",
                     color:
-                      formData.transactionType === "deposit" ? "white" : "#333",
+                      formData.transactionType === "ADMIN_RECHARGE" ? "white" : "#333",
                     border: "1px solid #ddd",
                     borderRadius: "4px",
                     fontSize: "14px",
@@ -708,16 +762,16 @@ const ManualDW = () => {
                 </button>
                 <button
                   type='button'
-                  onClick={() => handleTransactionTypeChange("withdraw")}
+                  onClick={() => handleTransactionTypeChange("ADMIN_DEDUCT")}
                   style={{
                     flex: 1,
                     padding: "10px",
                     backgroundColor:
-                      formData.transactionType === "withdraw"
+                      formData.transactionType === "ADMIN_DEDUCT"
                         ? "#e74c3c"
                         : "#f8f9fa",
                     color:
-                      formData.transactionType === "withdraw"
+                      formData.transactionType === "ADMIN_DEDUCT"
                         ? "white"
                         : "#333",
                     border: "1px solid #ddd",
@@ -957,7 +1011,8 @@ const ManualDW = () => {
               style={{
                 width: "100%",
                 padding: "12px 24px",
-                backgroundColor: isLoading ? "#95a5a6" : "#27ae60",
+                // backgroundColor: isLoading ? "#95a5a6" : "#27ae60",
+                backgroundColor: formData.transactionType === "ADMIN_RECHARGE" ? "#27ae60" : "#e74c3c",
                 color: "white",
                 border: "none",
                 borderRadius: "4px",
@@ -967,11 +1022,13 @@ const ManualDW = () => {
                 transition: "background-color 0.2s",
               }}
             >
+
+
               {isLoading
                 ? "Processing..."
-                : `Submit ${formData.transactionType === "deposit"
+                : `Submit ${formData.transactionType === "ADMIN_RECHARGE"
                   ? "Deposit"
-                  : "Withdrawal"
+                  : "Withdraw"
                 }`}
             </button>
           </form>
@@ -1049,7 +1106,7 @@ const ManualDW = () => {
                           }}
                         >
                           {getTransactionTypeIcon(transaction.type)}
-                          {transaction.type === "deposit" ? "+" : "-"}$
+                          {transaction.type === "ADMIN_RECHARGE" ? "+" : "-"}$
                           {Math.abs(transaction.amount || 0).toFixed(2)}
                         </div>
                       </div>
@@ -1063,9 +1120,10 @@ const ManualDW = () => {
                         {transaction.remark}
                       </div>
                       <div style={{ fontSize: "11px", color: "#999" }}>
-                        {new Date(transaction.timestamp).toLocaleString()} •
-                        Display: {transaction.display} • Balance: $
-                        {(transaction.newBalance || 0).toFixed(2)}
+                        {new Date(transaction.timestamp).toLocaleString()}
+                        {/* • */}
+                        {/* Display: {transaction.display} • Balance: $
+                        {(transaction.newBalance || 0).toFixed(2)} */}
                       </div>
                     </div>
                   ))}
